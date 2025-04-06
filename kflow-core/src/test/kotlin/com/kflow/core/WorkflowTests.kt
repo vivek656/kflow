@@ -1,57 +1,12 @@
 package com.kflow.core
 
 import kotlin.test.Test
-import kotlin.test.assertEquals
-import com.kflow.core2.Workflow as Workflow2
+import com.kflow.core.Workflow as Workflow2
 
 class WorkflowTest {
 
     @Test
-    fun `test createClientWorkflow`() {
-        val workflow = workflow("createClientWorkflow") {
-            start(description = "Initialize workflow") {
-                set("creator", "john.doe")
-                set("env", "dev")
-            }.check(
-                description = "Is creator an employee?",
-                condition = { get<String>("creator") == "john.doe" },
-                ifTrue = {
-                    then(description = "Retrieve environment variable") {
-                        val env = get<String>("env")
-                        set("clientType", if (env == "dev") "premium" else "standard")
-                    }
-                },
-                ifFalse = {
-                    terminate(description = "Unauthorized creator")
-                }
-            ).check(
-                description = "Is client type premium?",
-                condition = { get<String>("clientType") == "premium" },
-                ifTrue = {
-                    then(description = "Create premium client") {
-                        set("clientId", 123)
-                    }
-                },
-                ifFalse = {
-                    then(description = "Create standard client") {
-                        set("clientId", 456)
-                    }
-                }
-            ).then(description = "Log client creation") {
-                val id = get<Int>("clientId")
-                println("Client created with ID: $id")
-            }.terminate(description = "Workflow finished")
-        }
-
-        val context = FlowContext()
-        val result = WorkflowExecutor(workflow.steps).run(context)
-
-        //assertEquals(StepResult.Next, result)
-        assertEquals(123, context.get<Int>("clientId"))
-    }
-
-    @Test
-    fun workflow2(){
+    fun workflowTest(){
         val workflow = Workflow2.build<String>("createClientWorkflow") {
             start(description = "Initialize workflow") {
                 "creator" .. "john.doe"
