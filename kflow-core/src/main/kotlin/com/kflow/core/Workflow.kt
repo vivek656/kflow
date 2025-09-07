@@ -25,7 +25,7 @@ class Workflow<RESULT>(val name: String) {
 
     private val workflowContext = WorkflowContext(mutableMapOf());
 
-    fun generateDiagramString() = sharedWorkflow.generateMermaid()
+    fun generateMermaidDiagramString() = sharedWorkflow.generateMermaidDiagramString()
 
 
     private val sharedWorkflow = SharedWorkflowInfo(
@@ -58,6 +58,7 @@ class Workflow<RESULT>(val name: String) {
 
     fun ConditionalStep.ifTrue(
         description: String? = null,
+        jumpTo : String? =null,
         init: ExecutionContext.() -> Unit
     ): ConditionalStep {
         val edgeType = WorkflowEdgeType.ON_VALUE(true)
@@ -74,6 +75,9 @@ class Workflow<RESULT>(val name: String) {
                 from = this.id, to = step.id, type = edgeType
             )
         )
+        if(jumpTo != null) {
+            step.jumpTo(jumpTo)
+        }
         return this
     }
 
@@ -160,6 +164,7 @@ class Workflow<RESULT>(val name: String) {
     }
 }
 
+@WorkflowDSl
 class ExecutionContext(
     private val workflowContext: WorkflowContext,
 ) {
@@ -237,25 +242,62 @@ class SharedWorkflowInfo(
             ?: throw IllegalStateException("Some thing went wrong, as workflow $workflowName does not have ant step with id $id")
     }
 
-    fun generateMermaid(): String {
+    fun generateMermaidDiagramString(): String {
         val builder = StringBuilder()
         builder.appendLine("graph TD")
 
-        for ((_, edges) in workFlowStepGraph) {
+        val grouped = mutableMapOf<String, MutableList<WorkflowStepEdge>>()
+        val normalEdges = mutableListOf<WorkflowStepEdge>()
+
+        // 1. Separate ON_VALUE edges for grouping
+        for ((from, edges) in workFlowStepGraph) {
+            edges.forEach { edge ->
+                if (edge.type is WorkflowEdgeType.ON_VALUE<*>) {
+                    grouped.getOrPut(from) { mutableListOf() }.add(edge)
+                } else {
+                    normalEdges += edge
+                }
+            }
+        }
+
+        // 2. Print all ON_VALUE branches as subgraphs
+        for ((parent, edges) in grouped) {
+            builder.appendLine("  subgraph ${parent}_group [\"Branches from $parent\"]")
+
             for (edge in edges) {
-                val fromStep = workFlowSteps[edge.from]
-                val toStep = workFlowSteps[edge.to]
-
-                val fromLabel = "${edge.from}[\"${fromStep?.description ?: edge.from}\"]"
-                val toLabel = "${edge.to}[\"${toStep?.description ?: edge.to}\"]"
+                val fromLabel = edge.from
+                val toLabel = edge.to
                 val label = edge.type.name
+                val toDesc = workFlowSteps[toLabel]?.description ?: toLabel
 
-                builder.appendLine("  $fromLabel -->|$label| $toLabel")
+                builder.appendLine("    $fromLabel -->|$label| $toLabel[\"$toDesc\"]")
+            }
+
+            builder.appendLine("  end")
+        }
+
+        // 3. Draw normal edges
+        for (edge in normalEdges) {
+            val fromLabel = edge.from
+            val toLabel = edge.to
+            val fromDesc = workFlowSteps[fromLabel]?.description ?: fromLabel
+            val toDesc = workFlowSteps[toLabel]?.description ?: toLabel
+
+            val label = edge.type.name
+
+            // Check if this edge is a jump from a parent with grouped ON_VALUE children
+            val targetBox = grouped.keys.find { it == edge.to }
+
+            if (edge.type is WorkflowEdgeType.JUMP_TO && targetBox != null) {
+                builder.appendLine("  $fromLabel -->|$label| ${targetBox}_group")
+            } else {
+                builder.appendLine("  $fromLabel[\"$fromDesc\"] -->|$label| $toLabel[\"$toDesc\"]")
             }
         }
 
         return builder.toString()
     }
+
 }
 
 sealed class WorkflowEdgeType(val name: String, private val value: Any? = null) {
@@ -326,7 +368,7 @@ class ConditionalStep(
     executable = executable
 ) {
     override fun getExecutableContainer(context: ExecutionContext): ExecutableContainer<Boolean> {
-        return ChainedExecutable(ExecutableContainer(context, executable))
+        return ExecutableContainer(context)
     }
 }
 
